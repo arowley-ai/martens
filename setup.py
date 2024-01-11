@@ -16,8 +16,8 @@ test_requirements = ['pytest>=3', ]
 
 setup(
     author="Alex Rowley",
-    author_email='current.address@unknown.invalid',
-    python_requires='>=3.6',
+    author_email='arowley@gmail.com',
+    python_requires='>=3.8',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',
@@ -39,6 +39,6 @@ setup(
     test_suite='tests',
     tests_require=test_requirements,
     url='https://github.com/arowley-ai/martens',
-    version='0.1.1',
+    version='0.2.0',
     zip_safe=False,
 )
