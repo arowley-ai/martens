@@ -2,7 +2,7 @@
 import openpyxl as op
 import xlrd
 import csv
-
+import json
 
 def __sanitise_column_name__(column_name):
     replace_map = {':': '', ' ': '_', ')': '', '(': '_', '.': '_', "'": '', '%': 'pct', '+': 'plus', '-': '_'}
@@ -60,6 +60,21 @@ class Dataset(dict):
 
     def mutate(self, mutation, name=None):
         return self.__with__({name if name is not None else mutation.__name__: self.apply(mutation)})
+
+    def squish(self, grouping_cols, headings, values,mutation=list):
+
+        for var, name in zip([headings, values], ['Headings', 'Values']):
+            assert isinstance(var, str), name + ' must be a string'
+            assert var in self.columns, name + ' must be a column in this dataset'
+
+        all_headings = sorted(set(self[headings]))
+        rtn = self.group_by(grouping_cols=grouping_cols, other_cols=[headings, values])
+
+        for heading in all_headings:
+            rtn[str(heading)] = [mutation([v for v, h in zip(vals, heads) if h == heading])
+                                 for vals, heads in zip(rtn[values], rtn[headings])]
+
+        return rtn.select(grouping_cols + [str(h) for h in all_headings])
 
     def mutate_stretch(self, mutation, names):
         assert isinstance(names, list) or isinstance(names, dict), "Names should be a list or dict of string:function"
@@ -132,6 +147,7 @@ class Dataset(dict):
     def generator(self, names=None):
         return zip(*[self[name] for name in (names if names is not None else self.columns)])
 
+
     @property
     def records(self):
         return [{col: row for col, row in zip(self.columns, row)} for row in zip(*[self[col] for col in self])]
@@ -153,13 +169,16 @@ class Dataset(dict):
         return len(self.columns)
 
     @property
+    def pretty(self):
+        return json.dumps(self,indent=4)
+
+    @property
     def __entry_length__(self):
         return len(self[[x for x in self][0]])
 
     @property
     def __existing__(self):
         return {col: self[col] for col in self}
-
 
 def stack(list_of_datasets: list):
     assert isinstance(list_of_datasets, list), "Type error: Not a list"
