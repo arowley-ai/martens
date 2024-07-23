@@ -31,9 +31,7 @@ but which is still useful to you.
 The kind of data that was probably passed to you in a spreadsheet
 or csv file which needs to be transformed quickly into what you want.
 
-Philosophy
---------
-The primary aim of Martens is to have data manipulation code that is:
+The primary aim of Martens is to enable data manipulation code that is:
 
 * Flexible
 * Succinct
@@ -71,7 +69,7 @@ There's no such thing as a dataframe index in martens, they are not at all usefu
 for the type of data that martens is designed to parse. But, we can quickly add a
 standard, integer based column to use as an id in later steps::
 
-    source_data.with_id('chr_line_no')
+    source_data.with_id('person_id')
 
 
 
@@ -160,7 +158,7 @@ in another package. For example in plotly ::
     import plotly.express as px
     px.bar(dataframe,x='column1',y='column2')
 
-Conclusion
+What's next
 -----------
 This is just the beginning of this project, I hope it is useful to someone, somewhere.
 There are many, many feature and speed improvements that I would like to implement.
