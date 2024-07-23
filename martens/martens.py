@@ -6,6 +6,7 @@ import csv
 import json
 import datetime
 import re
+import inspect
 
 
 # Main purpose of martens, dataset class
@@ -63,6 +64,13 @@ class Dataset(dict):
             "Function arguments do not correspond to available columns"
         return func(**{name: self[name] for name in arg_names})
 
+    def window_apply(self, func, window_size=1):
+        assert callable(func), "Window apply requires a callable argument"
+        params = inspect.signature(func).parameters
+        assert len(params) == 1, "Window function can only accept one argument"
+        name = next(iter(params))
+        return [func(self[name][max(0, i - window_size + 1):i + 1]) for i in range(self.record_length)]
+
     def mutate(self, mutation, name=None):
         return self.__with__({name if name is not None else mutation.__name__: self.apply(mutation)})
 
@@ -70,6 +78,10 @@ class Dataset(dict):
         result = self.long_apply(mutation)
         assert isinstance(result, list), "Some returns are not lists"
         assert len(result) == self.record_length, "Some returns are not same length as record length"
+        return self.__with__({name if name is not None else mutation.__name__: result})
+
+    def window_mutate(self, mutation, window_size=1, name=None):
+        result = self.window_apply(mutation, window_size=window_size)
         return self.__with__({name if name is not None else mutation.__name__: result})
 
     def replace(self, mutation, name):
@@ -97,7 +109,7 @@ class Dataset(dict):
             value_name: self[h]
         }) for h in headings])
 
-    # These variants of mutate deal with functions that output multiple value and you really want multiple columns
+    # These variants of mutate deal with functions that output multiple value where you want multiple columns
     def mutate_stretch(self, mutation, names):
         assert isinstance(names, list) or isinstance(names, dict), "Names should be a list or dict of string:function"
         results = self.apply(mutation)
