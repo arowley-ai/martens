@@ -84,25 +84,31 @@ class Dataset(dict):
         result = self.window_apply(mutation, window_size=window_size)
         return self.__with__({name if name is not None else mutation.__name__: result})
 
-    def replace(self, mutation, name):
-        return self.__with__({name: [mutation(c) for c in self[name]]})
+    def replace(self, mutation, included_names=None, excluded_names=None):
+        if included_names is not None:
+            names = included_names
+        elif excluded_names is not None:
+            names = [n for n in self.columns if n not in excluded_names]
+        else:
+            return self
+        return self.__with__({name: [mutation(c) for c in self[name]] for name in names})
 
     # This is the pivot table where you make a column into lots of headings
-    def column_stretch(self, grouping_cols, headings, values):
+    def column_squish(self, grouping_cols, headings, values, prefix=''):
         for var, name in zip([headings, values], ['Headings', 'Values']):
             assert isinstance(var, str), name + ' must be a string'
             assert var in self.columns, name + ' must be a column in this dataset'
         rtn = self.group_by(grouping_cols=grouping_cols, other_cols=[headings, values])
         new_headings = sorted(set(self[headings]))
         for heading in new_headings:
-            rtn[heading] = [next(
+            rtn[prefix+heading] = [next(
                 (value for heading_inner, value in zip(rec[headings], rec[values])
                  if heading_inner == heading
                  ), None) for rec in rtn.records]
-        return rtn.select(grouping_cols + new_headings)
+        return rtn.select(grouping_cols + [prefix + h for h in new_headings])
 
     # This is kind of the reverse pivot where you stack lots of headings on top of each other
-    def column_stack(self, grouping_cols, headings, value_name, heading_name):
+    def headings_squish(self, grouping_cols, headings, value_name, heading_name):
         return stack([Dataset({
             **{g: self[g] for g in grouping_cols},
             heading_name: [h] * len(self[h]),
@@ -132,6 +138,41 @@ class Dataset(dict):
             new[save_len] = [len(r) for r in result for _ in r]
         return Dataset({**existing, **new})
 
+    # TODO: Check if the records are all dicts
+    # This function is great for stretching out record data into
+    def record_stretch(self, name, drop=True):
+        seen = set()
+        all_keys = []
+        for record in self[name]:
+            for key in record:
+                if key not in seen:
+                    seen.add(key)
+                    all_keys.append(key)
+        new = {key: [rec[key] if key in rec else None for rec in self[name]] for key in all_keys}
+        return Dataset({**self.__without__([name] if drop else []), **new})
+
+    # TODO: Check if all the records are lists
+    # This is where you have a column which just has lists and you need those lists over multiple rows
+    def column_stack(self, name):
+        existing = {col: [val for val, res in zip(self[col], self[name]) for _ in res] for col in self if
+                    col not in name}
+        new = {name: [val for rec in self[name] for val in rec]}
+        return Dataset({**existing, **new})
+
+    def json_explode(self, name):
+        in_scope_columns = [name]
+        rtn = self
+        while in_scope_columns:
+            col = in_scope_columns.pop()
+            if all(isinstance(element, dict) for element in rtn[col]):
+                old_cols = rtn.columns
+                rtn = rtn.record_stretch(col)
+                in_scope_columns.extend([col for col in rtn.columns if col not in old_cols])
+            elif all(isinstance(element, list) for element in rtn[col]):
+                rtn = rtn.column_stack(col)
+                in_scope_columns.append(col)
+        return rtn
+
     # Adding a simple ID to a dataset
     def with_id(self, name='id'):
         return self.__with__({name: list(range(self.__entry_length__))})
@@ -154,6 +195,10 @@ class Dataset(dict):
     def select(self, names):
         assert isinstance(names, list), "Type error: Not a list of names"
         return Dataset({name: self[name] for name in names})
+
+    def drop(self, names):
+        assert isinstance(names, list), "Type error: Not a list of names"
+        return Dataset({name: self[name] for name in self.columns if name not in names})
 
     # Neat little sorting function
     def sort(self, names, reverse=False):
@@ -201,19 +246,19 @@ class Dataset(dict):
     def merge_by_key(self, right, key_column, how='inner'):
         return self.merge(right, key_columns=[key_column], how=how)
 
-    def merge(self, right, key_columns=None, how='inner'):
+    def merge(self, right, on=None, how='inner'):
 
-        if key_columns is None:
+        if on is None:
             return self.full_outer_merge(right)
 
         assert isinstance(right, Dataset), "Type error: Right is not a dataset"
-        assert isinstance(key_columns, list), "Type error: Keys are not a list"
+        assert isinstance(on, list), "Type error: Keys are not a list"
 
-        left_sorted = self.sort(key_columns)
-        right_sorted = right.sort(key_columns)
+        left_sorted = self.sort(on)
+        right_sorted = right.sort(on)
 
-        left_keys = set(tuple(rec[key] for key in key_columns) for rec in left_sorted.records)
-        right_keys = set(tuple(rec[key] for key in key_columns) for rec in right_sorted.records)
+        left_keys = set(tuple(rec[key] for key in on) for rec in left_sorted.records)
+        right_keys = set(tuple(rec[key] for key in on) for rec in right_sorted.records)
 
         left_columns = left_sorted.columns
         right_columns = right_sorted.columns
@@ -228,7 +273,7 @@ class Dataset(dict):
 
         if how == 'inner':
             all_keys = sorted(left_keys & right_keys)
-        if how == 'right':
+        elif how == 'right':
             all_keys = sorted(right_keys)
         elif how == 'left':
             all_keys = sorted(left_keys)
@@ -237,22 +282,22 @@ class Dataset(dict):
 
         for key in all_keys:
 
-            while left_next is not None and tuple(left_next[i] for i in range(len(key_columns))) < key:
+            while left_next is not None and tuple(left_next[i] for i in range(len(on))) < key:
                 left_next = next(left_zipped, None)
 
-            while right_next is not None and tuple(right_next[i] for i in range(len(key_columns))) < key:
+            while right_next is not None and tuple(right_next[i] for i in range(len(on))) < key:
                 right_next = next(right_zipped, None)
 
-            for index, col in enumerate(key_columns):
+            for index, col in enumerate(on):
                 rtn[col].append(key[index])
 
-            for index, col in enumerate(c for c in left_columns if c not in key_columns):
-                rtn[col].append(left_next[index + len(key_columns)] if left_next is not None and tuple(
-                    left_next[i] for i in range(len(key_columns))) == key else None)
+            for index, col in enumerate(c for c in left_columns if c not in on):
+                rtn[col].append(left_next[index + len(on)] if left_next is not None and tuple(
+                    left_next[i] for i in range(len(on))) == key else None)
 
-            for index, col in enumerate(c for c in right_columns if c not in key_columns):
-                rtn[col].append(right_next[index + len(key_columns)] if right_next is not None and tuple(
-                    right_next[i] for i in range(len(key_columns))) == key else None)
+            for index, col in enumerate(c for c in right_columns if c not in on):
+                rtn[col].append(right_next[index + len(on)] if right_next is not None and tuple(
+                    right_next[i] for i in range(len(on))) == key else None)
 
         return rtn
 
@@ -275,24 +320,29 @@ class Dataset(dict):
         return zip(*[self[name] for name in (names if names is not None else self.columns)])
 
     def write_csv(self, file_path):
-        with open(file_path, 'w') as f:
-            f.write(
-                '\n'.join(
-                    [','.join(self.columns)] + [','.join(['"' + str(x) + '"' if x is not None else '' for x in r]) for r
-                                                in self.rows]))
+        with open(file_path, 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=self.columns)
+            writer.writeheader()
+            for record in self.records:
+                writer.writerow(record)
 
     def fill_none(self, value):
         return Dataset({col: [value if val is None else val for val in self[col]] for col in self.columns})
 
+    @property
+    def headings_camel_to_snake(self):
+        return Dataset({__camel_to_snake__(col): self[col] for col in self.columns})
+
     def __str__(self):
-        print_widths = [max([len(val.__str__()) for val in self[col]] + [len(col)]) + 1 for col in self.columns]
+        columns = self.columns
+        print_widths = [max([len(val.__str__()) for val in self[col]] + [len(col)]) + 1 for col in columns]
         rtn = '|'
-        for column, width in zip(self.columns, print_widths):
+        for column, width in zip(columns, print_widths):
             rtn = rtn + column.ljust(width) + '|'
         rtn = rtn + '\n'
         for record in self.records:
             rtn = rtn + '|'
-            for column, width in zip(self.columns, print_widths):
+            for column, width in zip(columns, print_widths):
                 rtn = rtn + record[column].__str__().ljust(width) + '|'
             rtn = rtn + '\n'
         return rtn
@@ -337,6 +387,9 @@ class Dataset(dict):
     @property
     def __existing__(self):
         return {col: self[col] for col in self}
+
+    def __without__(self, without):
+        return {col: self[col] for col in self if col not in without}
 
 
 # A class used to parse data from source files and access the Dataset
@@ -413,10 +466,22 @@ def __sanitise_column_name__(column_name):
         '\ufeff': '',
         '"': ''
     }
-    column_name = str(column_name).lower()
+    column_name = str(column_name)
     for k in replace_map:
         column_name = column_name.replace(k, replace_map[k])
     return column_name
+
+
+def __camel_to_snake__(camel):
+    return re.sub(r'(?<!^)(?=[A-Z])', '_', camel).lower()
+
+
+def initialise(id_length, id_name='id'):
+    return Dataset({id_name: list(range(id_length))})
+
+
+def average(input_list):
+    return sum(input_list) / len(input_list)
 
 
 def stack(list_of_datasets: list):
