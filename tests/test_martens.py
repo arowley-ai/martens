@@ -10,6 +10,6 @@ from martens import martens
 ])
 def test_total_ages_women(file_path):
     total_ages_women = martens.SourceFile(file_path=file_path) \
-        .dataset.filter(lambda gender: gender == 'Female') \
+        .dataset.headings_lower.filter(lambda gender: gender == 'Female') \
         .long_apply(lambda age: sum(age))
     assert total_ages_women == 263

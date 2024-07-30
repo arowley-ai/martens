@@ -101,7 +101,7 @@ class Dataset(dict):
         rtn = self.group_by(grouping_cols=grouping_cols, other_cols=[headings, values])
         new_headings = sorted(set(self[headings]))
         for heading in new_headings:
-            rtn[prefix+heading] = [next(
+            rtn[prefix + heading] = [next(
                 (value for heading_inner, value in zip(rec[headings], rec[values])
                  if heading_inner == heading
                  ), None) for rec in rtn.records]
@@ -244,15 +244,21 @@ class Dataset(dict):
 
     @deprecation.deprecated("Use merge instead")
     def merge_by_key(self, right, key_column, how='inner'):
-        return self.merge(right, key_columns=[key_column], how=how)
+        return self.merge(right, on=[key_column], how=how)
 
     def merge(self, right, on=None, how='inner'):
+
+        # TODO: handle error if user tries to merge on columns that don't exist
+        # TODO: handle error if user tries to merge a dataset containing only the key columns
+        assert isinstance(right, Dataset), "Type error: Right is not a dataset"
+        assert isinstance(on, list), "Type error: Keys are not a list"
+        assert how in ['inner', 'left', 'right', 'full'], "Expecting how to be 'inner', 'left', 'right' or 'full'"
 
         if on is None:
             return self.full_outer_merge(right)
 
-        assert isinstance(right, Dataset), "Type error: Right is not a dataset"
-        assert isinstance(on, list), "Type error: Keys are not a list"
+        def tuple_key(cols):
+            return tuple(cols[i] for i in range(len(on)))
 
         left_sorted = self.sort(on)
         right_sorted = right.sort(on)
@@ -263,11 +269,11 @@ class Dataset(dict):
         left_columns = left_sorted.columns
         right_columns = right_sorted.columns
 
-        left_zipped = zip(*[left_sorted[col] for col in left_columns])
-        right_zipped = zip(*[right_sorted[col] for col in right_columns])
+        left_zipped = list(zip(*[left_sorted[col] for col in left_columns]))
+        right_zipped = list(zip(*[right_sorted[col] for col in right_columns]))
 
-        left_next = next(left_zipped, None)
-        right_next = next(right_zipped, None)
+        left_zip_len = len(left_zipped)
+        right_zip_len = len(right_zipped)
 
         rtn = Dataset({col: [] for col in left_columns + [c for c in right_columns if c not in left_columns]})
 
@@ -280,24 +286,42 @@ class Dataset(dict):
         else:
             all_keys = sorted(left_keys | right_keys)
 
-        for key in all_keys:
+        left_organised, right_organised = [], []
+        for which, zipped, zipped_len in [('left', left_zipped, left_zip_len), ('right', right_zipped, right_zip_len)]:
+            index = 0
+            for key in all_keys:
+                to_add = []
+                while index < zipped_len:
+                    key_tuple = tuple_key(zipped[index])
+                    if key_tuple < key:
+                        index = index + 1
+                    elif key_tuple == key:
+                        to_add.append(zipped[index])
+                        index = index + 1
+                    else:
+                        break
 
-            while left_next is not None and tuple(left_next[i] for i in range(len(on))) < key:
-                left_next = next(left_zipped, None)
+                if not to_add and how not in [which, 'inner']:
+                    to_add = [[None] * len(left_columns)]
 
-            while right_next is not None and tuple(right_next[i] for i in range(len(on))) < key:
-                right_next = next(right_zipped, None)
+                if which == 'left':
+                    left_organised.append(to_add)
+                else:
+                    right_organised.append(to_add)
 
-            for index, col in enumerate(on):
-                rtn[col].append(key[index])
+        for key, left_to_add, right_to_add in zip(all_keys, left_organised, right_organised):
+            for left_add in left_to_add:
+                for right_add in right_to_add:
+                    for index, col in enumerate(on):
+                        rtn[col].append(key[index])
 
-            for index, col in enumerate(c for c in left_columns if c not in on):
-                rtn[col].append(left_next[index + len(on)] if left_next is not None and tuple(
-                    left_next[i] for i in range(len(on))) == key else None)
+                    for index, col in enumerate(left_columns):
+                        if col not in on:
+                            rtn[col].append(left_add[index])
 
-            for index, col in enumerate(c for c in right_columns if c not in on):
-                rtn[col].append(right_next[index + len(on)] if right_next is not None and tuple(
-                    right_next[i] for i in range(len(on))) == key else None)
+                    for index, col in enumerate(right_columns):
+                        if col not in on:
+                            rtn[col].append(right_add[index])
 
         return rtn
 
@@ -332,6 +356,10 @@ class Dataset(dict):
     @property
     def headings_camel_to_snake(self):
         return Dataset({__camel_to_snake__(col): self[col] for col in self.columns})
+
+    @property
+    def headings_lower(self):
+        return Dataset({col.lower(): self[col] for col in self.columns})
 
     def __str__(self):
         columns = self.columns
