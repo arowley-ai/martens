@@ -12,7 +12,7 @@ import inspect
 # Main purpose of martens, dataset class
 class Dataset(dict):
 
-    # The initialiser to a Dataset should be either:
+    # To initialise a Dataset should be either:
     # -> A dict of {string : list} of equal length or
     # -> A list of dicts of {column_name : value,}
     # In the latter case the engine will generate None values for any missing column names in each record
@@ -51,18 +51,18 @@ class Dataset(dict):
 
     def apply(self, func):
         assert callable(func), "Apply requires a callable argument"
-        arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
-        assert all(arg_name in self for arg_name in arg_names), \
+        params = inspect.signature(func).parameters
+        assert all(param in self for param in params), \
             "Function arguments do not correspond to available columns"
-        return [func(**{arg: val for arg, val in zip(arg_names, arg_vals)}) for arg_vals in
-                zip(*[self[arg] for arg in arg_names])]
+        return [func(**{arg: val for arg, val in zip(params, arg_vals)}) for arg_vals in
+                zip(*[self[param] for param in params])]
 
     def long_apply(self, func):
         assert callable(func), "Long apply requires a callable argument"
-        arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
-        assert all(arg_name in self for arg_name in arg_names), \
+        params = inspect.signature(func).parameters
+        assert all(param in self for param in params), \
             "Function arguments do not correspond to available columns"
-        return func(**{name: self[name] for name in arg_names})
+        return func(**{param: self[param] for param in params})
 
     def window_apply(self, func, window_size=1):
         assert callable(func), "Window apply requires a callable argument"
@@ -216,7 +216,6 @@ class Dataset(dict):
 
         sorts = self.sort(grouping_cols)
 
-        row = -1
         last_grouped = None
         rtn = dict()
 
@@ -474,7 +473,7 @@ class SourceFile:
     @property
     def csv(self):
         reader = csv.reader(open(self.file_path))
-        _ = [next(reader, None) for x in range(self.from_row - 1)]
+        _ = [next(reader, None) for _ in range(self.from_row - 1)]
         headers = [__sanitise_column_name__(w) for w in next(reader, None)][(self.from_col - 1):self.to_col]
         rawdata = [list(d) for d in zip(*[r for r in reader])][(self.from_col - 1):self.to_col]
         return Dataset({h: d for h, d in zip(headers, rawdata)})
