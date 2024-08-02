@@ -107,7 +107,7 @@ If you just want the output without adding to the dataframe, use apply::
     source_data.apply(lambda age: 7*age)
 
 Stack, stretch and squish
-########################
+#########################
 Sometimes, we don't want to simply create a new column with the required features.
 If the output of your function resolves to a list, you can choose
 to stack the output vertically. This will produce a new dataframe
