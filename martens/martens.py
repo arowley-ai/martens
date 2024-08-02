@@ -352,14 +352,6 @@ class Dataset(dict):
     def fill_none(self, value):
         return Dataset({col: [value if val is None else val for val in self[col]] for col in self.columns})
 
-    @property
-    def headings_camel_to_snake(self):
-        return Dataset({__camel_to_snake__(col): self[col] for col in self.columns})
-
-    @property
-    def headings_lower(self):
-        return Dataset({col.lower(): self[col] for col in self.columns})
-
     def __str__(self):
         columns = self.columns
         print_widths = [max([len(val.__str__()) for val in self[col]] + [len(col)]) + 1 for col in columns]
@@ -373,6 +365,15 @@ class Dataset(dict):
                 rtn = rtn + record[column].__str__().ljust(width) + '|'
             rtn = rtn + '\n'
         return rtn
+
+    @property
+    def headings_camel_to_snake(self):
+        return Dataset({__camel_to_snake__(col): self[col] for col in self.columns})
+
+    @property
+    def headings_lower(self):
+        return Dataset({col.lower(): self[col] for col in self.columns})
+
 
     @property
     def rows(self):
